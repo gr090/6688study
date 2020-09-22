@@ -172,3 +172,163 @@ class _Vector_base {
 };
 ```
 
+为了降低空间配置时的速度成本，vector实际配置的大小可能比客户端需求量更大一些，以备将来可能的扩充。这便是容量的概念。也就是说，一个vector的容量永远大于或等于其大小。一旦容量等于大小，下次再新增元素时就需要新开辟一块空间。
+
+![vector示意图](./../img/vector示意图.png)
+
+运用start、finish、end_of_storage三个迭代器，vector**提供了首尾标示、大小、容量、空容器判断、注标[]运算符、最前端元素值、最后端元素值....等机能**，如下：
+
+```c++
+  iterator begin() { return _M_start; }
+  iterator end() { return _M_finish; }
+  size_type size() const { return size_type(end() - begin()); }
+  size_type capacity() const { return size_type(_M_end_of_storage - begin()); }
+  bool empty() const { return begin() == end(); }
+  reference operator[](size_type __n) { return *(begin() + __n); }
+  reference front() { return *begin(); }
+  reference back() { return *(end() - 1); }
+```
+
+## vector的构造与内存管理
+
+vector默认使用alloc做为空间配置器，并据此另外定义了一个data_allocator，为的是更方便以元素大小为配置单位：
+
+```c++
+template <class _Tp, class _Alloc> 
+class _Vector_base {
+protected:
+    typedef simple_alloc<_Tp, _Alloc> _M_data_allocator;
+...
+};
+```
+
+data_allocator::allocate(n) 表示配置n个元素空间
+
+vector提供许多构造函数，其中一个允许我们指定空间大小及初值：
+
+```c++
+vector(size_type __n, const _Tp& __value, const allocator_type& __a = allocator_type()): _Base(__n, __a)
+  { _M_finish = uninitialized_fill_n(_M_start, __n, __value); }
+```
+
+当我们以push_back() 将新元素安插入于vector尾端时，该函式首先检查是否还有备用空间，如果有就直接在备用空间上建构元素，并调整迭代器finish，使vector变大。如果没有备用空间了，就扩充空间（重新配置、搬移数据、释放原空间）
+
+```c++
+  void push_back(const _Tp& __x) {
+    if (_M_finish != _M_end_of_storage) { //还有备用空间
+      construct(_M_finish, __x);
+      ++_M_finish; // 调整水位高度
+    }
+    else // 已无备用空间
+      _M_insert_aux(end(), __x);
+  }
+```
+
+```c++
+template <class _Tp, class _Alloc>
+void vector<_Tp, _Alloc>::_M_insert_aux(iterator __position, const _Tp& __x)
+{
+  if (_M_finish != _M_end_of_storage) {
+    // 在备用空间起始处建构一个元素，并以 vector 最后一个元素值为其初值。
+    construct(_M_finish, *(_M_finish - 1));
+    ++_M_finish;
+    _Tp __x_copy = __x;
+    copy_backward(__position, _M_finish - 2, _M_finish - 1);
+    *__position = __x_copy;
+  }
+  else {
+    const size_type __old_size = size();
+    const size_type __len = __old_size != 0 ? 2 * __old_size : 1;
+    // 以上配置原则：如果原大小为0，则配置 1（个元素大小）
+    // 如果原大小不为 0，则配置原大小的两倍，
+    // 前半段用来放置原数据，后半段准备用来放置新数据
+    iterator __new_start = _M_allocate(__len);
+    iterator __new_finish = __new_start;
+    __STL_TRY {
+      // 将原 vector 的内容拷贝到新vector
+      __new_finish = uninitialized_copy(_M_start, __position, __new_start);
+      // 为新元素设定初值 x
+      construct(__new_finish, __x);
+      // 调整水位
+      ++__new_finish;
+      // 将原vector的备用空间中的内容也忠实拷贝过来
+      __new_finish = uninitialized_copy(__position, _M_finish, __new_finish);
+    }
+    __STL_UNWIND((destroy(__new_start,__new_finish), 
+                  _M_deallocate(__new_start,__len)));
+    //析构并释放原vector
+    destroy(begin(), end());
+    _M_deallocate(_M_start, _M_end_of_storage - _M_start);
+    // 调整迭代器，指向新vector
+    _M_start = __new_start;
+    _M_finish = __new_finish;
+    _M_end_of_storage = __new_start + __len;
+  }
+}
+```
+
+- **vector的内存重分配策略：**
+
+  - vector是以数组的形式存储的，当往vector中增加元素时，如果vector的容量不足，那么vector就会进行扩容
+  - **扩容的规则是：**所谓动态增加大小，并不是在原空间之后接续新空间（因为无法保证原空间之后尚有可供配置的空间），而是申请一块比现在大的新的内存空间（gcc和vc申请规则不同，见下面介绍），然后原来内存中的内容拷贝到新内存中，然后才开始在原内容之后构造新元素，并释放原来的内存。
+  - **重点：**在gcc和vc的环境下，vector的扩容规则是不一样的
+
+  > ### Windows下
+  >
+  > - vector内存重分配即容量的增长是有规律的，***\*可以通过下面的公式描述：\****
+  >
+  > ```c++
+  > maxSize = maxSize + ((maxSize >> 1) > 1 ? (maxSize >> 1) : 1)
+  > ```
+  >
+  > - 就是由1、2、3、4、6、9、13、19......依次增长
+  > - 从4之后开始有规则：当前索引处的值等于前一个元素值和前前前元素的值之和
+  >
+  > ### Linux下
+  >
+  > - **Linux下的扩容规则是：**其比较简单，就是将大小扩充为原来的2倍
+  >
+  > ```
+  > maxSize = maxSize*2;
+  > ```
+  >
+  > - 就是由1、2、4、8、16......依次增长
+
+- **注意（重点）：** 对vector 的任何操作，一旦引起空间重新配置，**指向原vector的所有迭代器就都失效了**。这是程序员易犯的一个错误，务需小心
+
+## vector的元素操作
+
+### pop_back
+
+```c++
+//将尾端元素拿掉，并调整大小  
+void pop_back() {
+    --_M_finish; //将尾端标记往前移一格，表示将放弃尾端元素
+    destroy(_M_finish);
+  }
+```
+
+### erase
+
+```c++
+// 清除某个位置上的元素
+iterator erase(iterator __position) {
+    if (__position + 1 != end())
+      copy(__position + 1, _M_finish, __position);
+    --_M_finish;
+    destroy(_M_finish);
+    return __position;
+  }
+```
+
+```c++
+// 清除[first,last)中的所有元素
+iterator erase(iterator __first, iterator __last) {
+    iterator __i = copy(__last, _M_finish, __first);
+    destroy(__i, _M_finish);
+    _M_finish = _M_finish - (__last - __first);
+    return __first;
+  }
+```
+
+![局部区间的清除操作erase](./../img/局部区间的清除操作erase.png)
