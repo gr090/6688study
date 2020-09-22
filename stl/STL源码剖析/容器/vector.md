@@ -254,6 +254,7 @@ void vector<_Tp, _Alloc>::_M_insert_aux(iterator __position, const _Tp& __x)
       // 将原vector的备用空间中的内容也忠实拷贝过来
       __new_finish = uninitialized_copy(__position, _M_finish, __new_finish);
     }
+    // 如果try失败就回滚，释放分配的内存空间
     __STL_UNWIND((destroy(__new_start,__new_finish), 
                   _M_deallocate(__new_start,__len)));
     //析构并释放原vector
@@ -271,9 +272,29 @@ void vector<_Tp, _Alloc>::_M_insert_aux(iterator __position, const _Tp& __x)
 
   - vector是以数组的形式存储的，当往vector中增加元素时，如果vector的容量不足，那么vector就会进行扩容
   - **扩容的规则是：**所谓动态增加大小，并不是在原空间之后接续新空间（因为无法保证原空间之后尚有可供配置的空间），而是申请一块比现在大的新的内存空间（gcc和vc申请规则不同，见下面介绍），然后原来内存中的内容拷贝到新内存中，然后才开始在原内容之后构造新元素，并释放原来的内存。
-  - **重点：**在gcc和vc的环境下，vector的扩容规则是不一样的
+  - **重点：**vector的每种实现都可以自由地选择自己的内存分配策略，分配多少内存取决于其实现方式，不同的库采用不同的分配策略。在gcc和vc的环境下，vector的扩容规则是不一样的
 
-  > ### Windows下
+  > vector容量测试程序：
+  >
+  > ```c++
+  > #include <iostream>
+  > #include <vector>
+  > using namespace std;
+  > 
+  > int main(){
+  >     vector<int> result;
+  >     for (int i = 0; i < 17; i++)
+  >     {
+  >         result.push_back(i);
+  >         printf("element count:  %d\t", result.size());
+  >         printf("capacity:  %d\t", result.capacity());
+  >         printf("first element's address:  %x\n", result.begin());
+  >     }
+  >     return 0;
+  > }
+  > ```
+  >
+  > ### VS下
   >
   > - vector内存重分配即容量的增长是有规律的，***\*可以通过下面的公式描述：\****
   >
@@ -284,9 +305,24 @@ void vector<_Tp, _Alloc>::_M_insert_aux(iterator __position, const _Tp& __x)
   > - 就是由1、2、3、4、6、9、13、19......依次增长
   > - 从4之后开始有规则：当前索引处的值等于前一个元素值和前前前元素的值之和
   >
-  > ### Linux下
+  > VS为1.5倍扩容，参考VS2017目录C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\include\vector
   >
-  > - **Linux下的扩容规则是：**其比较简单，就是将大小扩充为原来的2倍
+  > ```c++
+  > size_type _Grow_to(size_type _Count) const
+  > {	// grow by 50% or at least to _Count
+  >     size_type _Capacity = capacity();
+  > 
+  >     _Capacity = max_size() - _Capacity / 2 < _Capacity
+  >         ? 0 : _Capacity + _Capacity / 2;	// try to grow by 50%
+  >     if (_Capacity < _Count)
+  >         _Capacity = _Count;
+  >     return (_Capacity);
+  > }
+  > ```
+  >
+  > ### gcc下
+  >
+  > - **gcc下的扩容规则是：**其比较简单，就是将大小扩充为原来的2倍
   >
   > ```
   > maxSize = maxSize*2;
@@ -295,6 +331,56 @@ void vector<_Tp, _Alloc>::_M_insert_aux(iterator __position, const _Tp& __x)
   > - 就是由1、2、4、8、16......依次增长
 
 - **注意（重点）：** 对vector 的任何操作，一旦引起空间重新配置，**指向原vector的所有迭代器就都失效了**。这是程序员易犯的一个错误，务需小心
+
+### vector的内存增长
+
+vector其中一个特点：内存空间只会增长，不会减小，援引C++ Primer：为了支持快速的随机访问，vector容器的元素以连续方式存放，每一个元素都紧挨着前一个元素存储。设想一下，当vector添加一个元素时，为了满足连续存放这个特性，都需要重新分配空间、拷贝元素、撤销旧空间，这样性能难以接受。因此STL实现者在对vector进行内存分配时，其实际分配的容量要比当前所需的空间多一些。就是说，vector容器预留了一些额外的存储区，用于存放新添加的元素，这样就不必为每个新元素重新分配整个容器的内存空间。
+
+### vector的内存释放
+
+由于vector的内存占用空间只增不减，比如你首先分配了10,000个字节，然后erase掉后面9,999个，留下一个有效元素，但是内存占用仍为10,000个。所有内存空间是在vector析构时候才能被系统回收。empty()用来检测容器是否为空的，clear()可以清空所有元素。但是即使clear()，vector所占用的内存空间依然如故，无法保证内存的回收。
+
+如果需要空间动态缩小，可以考虑使用deque。如果vector，可以用swap()来帮助你释放内存。
+
+```c++
+vector<Point>().swap(pointVec);
+```
+
+标准模板：
+
+```c++
+template < class T >
+void ClearVector( vector< T >& vt ) 
+{
+    vector< T > vtTemp; 
+    veTemp.swap( vt );
+}
+```
+
+swap()是交换函数，使vector离开其自身的作用域，从而强制释放vector所占的内存空间，总而言之，释放vector内存最简单的方法是vector<Point>().swap(pointVec)。当时如果pointVec是一个类的成员，不能把vector<Point>().swap(pointVec)写进类的析构函数中，否则会导致double free or corruption (fasttop)的错误，原因可能是重复释放内存。
+
+> ### 其他情况释放内存
+>
+> 如果vector中存放的是指针，那么当vector销毁时，这些指针指向的对象不会被销毁，那么内存就不会被释放。如下面这种情况，vector中的元素时由new操作动态申请出来的对象指针：
+>
+> ```c++
+> #include <vector> 
+> using namespace std; 
+> 
+> vector<void *> v;
+> ```
+>
+> 每次new之后调用v.push_back()该指针，在程序退出或者根据需要，用以下代码进行内存的释放：
+>
+> ```c++
+> for (vector<void *>::iterator it = v.begin(); it != v.end(); it ++) 
+>     if (NULL != *it) 
+>     {
+>         delete *it; 
+>         *it = NULL;
+>     }
+> v.clear();
+> ```
 
 ## vector的元素操作
 
@@ -332,3 +418,79 @@ iterator erase(iterator __first, iterator __last) {
 ```
 
 ![局部区间的清除操作erase](./../img/局部区间的清除操作erase.png)
+
+### insert
+
+insert函数是把元素插入到对应位置，该函数效率很低，特别是front插入，要移动所有元素退后一个位置，很花销时间，企业级数据尽量少用 vector 的 insert
+
+```c++
+template <class _Tp, class _Alloc>
+void vector<_Tp, _Alloc>::_M_fill_insert(iterator __position, size_type __n, 
+                                            const _Tp& __x)
+{
+    if (__n != 0) //当n!=0时才进行以下所有操作，防止不插入元素而造成资源耗费
+    {
+        //备用空间大小大于或者等于新增元素个数
+        if (size_type(_M_end_of_storage - _M_finish) >= __n) 
+        {
+            _Tp __x_copy = __x;
+            // 以下计算插入点之后的现有元素个数
+            const size_type __elems_after = _M_finish - __position;
+            iterator __old_finish = _M_finish;
+            if (__elems_after > __n) 
+            {
+                //插入点之后的现有元素个数大于新增元素个数
+                uninitialized_copy(_M_finish - __n, _M_finish, _M_finish);
+                _M_finish += __n;//将vector尾端标记后移
+                copy_backward(__position, __old_finish - __n, __old_finish);
+                fill(__position, __position + __n, __x_copy);
+
+            }
+            else 
+            {
+                //插入点之后的现有元素个数小于等于新增元素个数
+                uninitialized_fill_n(_M_finish, __n - __elems_after, __x_copy);
+                _M_finish += __n - __elems_after;
+                uninitialized_copy(__position, __old_finish, _M_finish);
+                _M_finish += __elems_after;
+                fill(__position, __old_finish, __x_copy);
+            }
+            
+            //不明白为什么要比较__elems_after 和 _n，不是能够全体移动并且直接插入要插入的元素吗？所以            
+            //感觉特别复杂，个人觉得可以改成：
+            //uninitialized_copy(__position, _M_finish, __position + n);
+            //_M_finish += __n;
+            //fill(__position, __position + __n, __x_copy);
+        }
+        else 
+        {
+            //备用空间大小小于新增元素个数，必须配置额外内存，那就用到空间配置器了
+            const size_type __old_size = size();        
+            //决定新的长度，为旧的长度的两倍，或者旧的长度+新的长度
+            const size_type __len = __old_size + max(__old_size, __n);
+            //开始调用空间配置器，配置新的vector空间
+            iterator __new_start = _M_allocate(__len);
+            iterator __new_finish = __new_start;
+            __STL_TRY 
+            {    //移动元素
+                //首先移动要插入点位置之前的所有元素到新的vector
+                __new_finish = uninitialized_copy(_M_start, __position, __new_start);
+                //其次开始构造要插入的元素
+                __new_finish = uninitialized_fill_n(__new_finish, __n, __x);
+                //最后移动要插入点位置之后的所有元素到新的vector
+                __new_finish = uninitialized_copy(__position, _M_finish, __new_finish);
+            }
+            __STL_UNWIND((destroy(__new_start,__new_finish);
+            //以下清除并且释放旧的vector
+            _M_deallocate(__new_start,__len)));
+            destroy(_M_start, _M_finish);
+            _M_deallocate(_M_start, _M_end_of_storage - _M_start);
+            //移动起始点和水位
+            _M_start = __new_start;
+            _M_finish = __new_finish;
+            _M_end_of_storage = __new_start + __len;
+        }
+    }
+}
+```
+
