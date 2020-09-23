@@ -386,6 +386,8 @@ swap()是交换函数，使vector离开其自身的作用域，从而强制释�
 
 ### pop_back
 
+pop_back()将尾后指针finish向前移动，最后将finish指向的对象析构掉（destroy()为全局函数，用于析构）。
+
 ```c++
 //将尾端元素拿掉，并调整大小  
 void pop_back() {
@@ -395,6 +397,8 @@ void pop_back() {
 ```
 
 ### erase
+
+erase()函数有两个版本的，用于清除某个位置的元素或某两个位置之间的所有元素。对于第一个版本，若删除元素不是末尾元素，则将position之后的元素向前移动，并将末尾元素析构；否则直接对末尾元素析构。对于第二个版本，思想与第一个版本相似，将(last,finish)之间的元素拷贝至first处，然后将多余的元素析构掉。
 
 ```c++
 // 清除某个位置上的元素
@@ -424,6 +428,7 @@ iterator erase(iterator __first, iterator __last) {
 insert函数是把元素插入到对应位置，该函数效率很低，特别是front插入，要移动所有元素退后一个位置，很花销时间，企业级数据尽量少用 vector 的 insert
 
 ```c++
+//从position开始，插入n个元素，元素初值为x
 template <class _Tp, class _Alloc>
 void vector<_Tp, _Alloc>::_M_fill_insert(iterator __position, size_type __n, 
                                             const _Tp& __x)
@@ -494,3 +499,27 @@ void vector<_Tp, _Alloc>::_M_fill_insert(iterator __position, size_type __n,
 }
 ```
 
+- 注意，插入完成后，**新节点将位于哨兵迭代器（即上例的position，标示出插入点） 所指之节点的前方**——这是STL对于“插入操作”的标准规范。下面的图片展示了insert(position,n,x)的操作
+
+***备用空间>=新增元素个数的情况：***
+
+- ①备用空间2>=新增元素个数2
+- ②插入点之后的现有元素个数3>新增元素个数2
+
+若插入点后的元素数量m大于插入元素的数量n，先将vector的后n个元素uninitialized_copy至vector末尾，再将m-n个元素拷贝至old_finish（插入数据前的finish）之前，最后再对position位置填充需要插入的数据。
+
+![insert状况1](./../img/insert状况1.png)
+
+- ③插入点之后的现有元素个数2<=新增元素个数3
+
+![insert状况2](./../img/insert状况2.png)
+
+***备用空间<新增元素个数的情况：***
+
+- 例如下面备用空间2<新增元素个数n==3
+
+此时需要开辟新的空间，首先将插入点之前的元素uninitialized_copy()至新的vector内，然后将需要拷贝的元素uninitialized_fill_n()至新vector的插入点，最后再将原vector剩下的元素uninitialized_copy()至新vector的最后。
+
+开辟新的空间的大小由插入元素的数量决定：若插入元素数量大于vector的大小old_size，则新vector的大小为old_size+n；否则新vector的大小为2*old_size：
+
+![insert状况3](./../img/insert状况3.png)
