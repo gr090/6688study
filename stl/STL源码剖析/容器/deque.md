@@ -189,7 +189,7 @@
 
 ## deque的迭代器
 
-- deque是分段连续空间。**维护其“整体连续”假象的任务**，着落在迭代器的operator++ 和 operator-- 两个运算符身上
+- deque是分段连续空间。**维护其“整体连续”假象的任务**，落在迭代器的operator++ 和 operator-- 两个运算符身上
 - **让我们思考一下，deque迭代器应该具备什么结构：**
   - 首先，它必须能够指出分段连续空间（亦即缓冲区）在哪里
   - 其次它必须能够判断自己是否已经处于其所在缓冲区的边缘，如果是，一旦前进或后退时就必须跳跃至下一个或上一个缓冲区
@@ -211,12 +211,12 @@
 >   static size_t _S_buffer_size() { return __deque_buf_size(sizeof(_Tp)); }
 > 
 >   // 未继承 std::iterator，所以必须自行撰写五个必要的迭代器相应型别
->   typedef random_access_iterator_tag iterator_category;
->   typedef _Tp value_type;
->   typedef _Ptr pointer;
->   typedef _Ref reference;
+>   typedef random_access_iterator_tag iterator_category; //(1)
+>   typedef _Tp value_type;              //(2)
+>   typedef _Ptr pointer;                //(3)
+>   typedef _Ref reference;              //(4)
 >   typedef size_t size_type;
->   typedef ptrdiff_t difference_type;
+>   typedef ptrdiff_t difference_type;   //(5)
 >   typedef _Tp** _Map_pointer;
 > 
 >   typedef _Deque_iterator _Self;
@@ -252,3 +252,334 @@
 >   - 注意，**最后一个缓冲区尚有备用空间**。 如果有新元素要插入于尾端，可直接拿此备用空间来使用
 >
 > ![deque迭代器演示说明](./../img/deque迭代器演示说明.png)
+
+> ### 迭代器其他函数（附set_node函数）
+>
+> - 下面是deque迭代器的几个关键行为。由于迭代器内对各种指标运算都做了重载操作，所以各种指标运算如加、减、前进、后退都不能直观视之
+> - 其中最重点的关键就是：一旦行进时遇到缓冲区边缘，要特别当心，视前进或后退而定， **可能需要调用set_node() 跳一个缓冲区：**
+>
+> ```c++
+>   void _M_set_node(_Map_pointer __new_node) {
+>     _M_node = __new_node;
+>     _M_first = *__new_node;
+>     _M_last = _M_first + difference_type(_S_buffer_size());
+>   }
+> ```
+>
+> ```c++
+>   reference operator*() const { return *_M_cur; }
+>   pointer operator->() const { return _M_cur; }
+> ```
+>
+> ```c++
+>   difference_type operator-(const _Self& __x) const {
+>     return difference_type(_S_buffer_size()) * (_M_node - __x._M_node - 1) +
+>       (_M_cur - _M_first) + (__x._M_last - __x._M_cur);
+>   }
+> 
+>   _Self& operator++() {
+>     ++_M_cur;//切换至下个元素
+>     if (_M_cur == _M_last) {  //如果已达所在缓冲区的尾端，就切换至下一节点（亦即缓冲区）的第一个元素
+>       _M_set_node(_M_node + 1);
+>       _M_cur = _M_first;
+>     }
+>     return *this; 
+>   }
+>   _Self operator++(int)  {  //后置式，标准写法
+>     _Self __tmp = *this;
+>     ++*this;
+>     return __tmp;
+>   }
+> 
+>   _Self& operator--() {
+>     if (_M_cur == _M_first) {  //如果已达所在缓冲区的头端， 就切换至前一节点（亦即缓冲区）的最后一个元素
+>       _M_set_node(_M_node - 1);
+>       _M_cur = _M_last;
+>     }
+>     --_M_cur;  //切换至前一个元素
+>     return *this;
+>   }
+>   _Self operator--(int) {
+>     _Self __tmp = *this;
+>     --*this;
+>     return __tmp;
+>   }
+> 
+>   // 以下实现随机存取。迭代器可以直接跳跃n个距离
+>   _Self& operator+=(difference_type __n)
+>   {
+>     difference_type __offset = __n + (_M_cur - _M_first);
+>     if (__offset >= 0 && __offset < difference_type(_S_buffer_size()))
+>       //标的位置在同一缓冲区内
+>       _M_cur += __n; 
+>     else {
+>       //标的位置不在同一缓冲区内
+>       difference_type __node_offset =
+>         __offset > 0 ? __offset / difference_type(_S_buffer_size())
+>                    : -difference_type((-__offset - 1) / _S_buffer_size()) - 1;
+>       // 切换至正确的节点（亦即缓冲区）
+>       _M_set_node(_M_node + __node_offset);
+>       // 切换至正确的元素
+>       _M_cur = _M_first + 
+>         (__offset - __node_offset * difference_type(_S_buffer_size()));
+>     }
+>     return *this;
+>   }
+> ```
+
+## deque的数据结构
+
+deque除了维护一个先前说过的指向map的指标外，**也维护start, finish两个迭代器：**
+
+- 分别指向第一缓冲区的第一个元素和最后缓冲区的最后一个元素的下一位置（可以参见上图）
+- 此外它也记住目前的map大小。因为一旦map所提供的节点不足，就必须重新配置更大的以块map
+
+```c++
+template <class _Tp, class _Alloc>
+class _Deque_base {
+public:
+  typedef _Deque_iterator<_Tp,_Tp&,_Tp*>             iterator;
+  ...
+protected:
+  _Tp** _M_map;// 指向 map，map是块连续空间，其每个元素都是个指针，指向一个节点（缓冲区）
+  size_t _M_map_size;  // map内有多少指针　
+  iterator _M_start;  // 表现第一个节点。
+  iterator _M_finish; // 表现最后一个节点。
+```
+
+- 有了上述结构，以下几个机能便可轻易完成：
+
+```c++
+public:                         // Basic accessors
+  iterator begin() { return _M_start; }
+  iterator end() { return _M_finish; }
+
+  reference operator[](size_type __n)
+    { return _M_start[difference_type(__n)]; }
+
+  reference front() { return *_M_start; }
+  reference back() {
+    iterator __tmp = _M_finish;
+    --__tmp;
+    return *__tmp;
+  }
+
+  size_type size() const { return _M_finish - _M_start; }
+  size_type max_size() const { return size_type(-1); }
+  bool empty() const { return _M_finish == _M_start; }
+```
+
+## deque的构造与内存管理
+
+测试程序
+
+```c++
+#include <deque>
+#include <iostream>
+#include <algorithm>
+using namespace std;
+
+int main()
+{
+  deque<int,alloc,32> ideq(20,9);
+  cout<<"size="<<ideq.size()<<endl;//构造了一个deque，有20个int元素，初值皆为9，缓冲区大小为32bytes
+  
+  // 为每一个元素设定新值
+  for(int i=0;i<ideq.size();++i)
+    ideq[i] = i;
+  for(int i=0;i<ideq.size();++i)
+    cout<<ideq[i]<<' ';           //0 1 2 3 4 5 6...19
+  cout<<endl;
+
+  // 在最尾端增加3个元素，其值为0,1,2
+  for(int i=0;i<3;i++)
+    ideq.push_back(i);
+  for(int i=0;i<ideq.size();++i)
+    cout<<ideq[i]<<' ';           //0 1 2 3...19 0 1 2
+  cout<<endl;
+  cout<<"size="<<ideq.size()<<endl; // size=23
+  
+  // 在最尾端增加一个元素，其值为3
+  ideq.push_back(3)
+  for(int i=0;i<ideq.size();++i)
+  cout<<ideq[i]<<' ';           //0 1 2 3...19 0 1 2 3
+  cout<<endl;
+  cout<<"size="<<ideq.size()<<endl; // size=24
+  
+    // 在最前端增加一个元素，其值为99
+  ideq.push_front(99)
+  for(int i=0;i<ideq.size();++i)
+  cout<<ideq[i]<<' ';           //99 0 1 2 3...19 0 1 2 3
+  cout<<endl;
+  cout<<"size="<<ideq.size()<<endl; // size=25
+  
+    // 在最前端增加2个元素，其值为98，97
+  ideq.push_front(98)
+  ideq.push_front(97)
+  for(int i=0;i<ideq.size();++i)
+  cout<<ideq[i]<<' ';           //97 98 99 0 1 2 3...19 0 1 2 3
+  cout<<endl;
+  cout<<"size="<<ideq.size()<<endl; // size=27
+  
+  // 搜寻数值为99的元素，并打印出来
+  deque<int,alloc,32>::iterator itr;
+  itr=find(ideq.begin(), ideq.end(), 99);
+  cout<<*itr<<endl;       // 99
+  cout<<*(itr.cur)<<endl; // 99
+}
+```
+
+> ### deque的内存分配
+>
+> - deque的缓冲区扩充动作相当琐碎繁杂，以下将以分解动作的方式一步一步说明
+> - 程序一开始声明了一个deque：其缓冲区大小为8（保存8个int类型的元素），并令其保留20个元素空间，每个元素初值为9。为了指定 deque的第3个 template 参数（缓冲区大小），我们必须将前两个参数都指明出来（C++语法规则），因此必须明确指定alloc为空间配置器
+> - 现在，deque的情况如下图所示（该图并未显示每个元素的初值为 9）
+>
+> ![deque演示说明](./../img/deque迭代器演示说明.png)
+>
+> * deque自行定义了两个专属的空间配置器
+>
+> ```c++
+> template <class _Tp, class _Alloc>
+> class _Deque_base {
+>   ...
+>   protected:
+>     typedef simple_alloc<_Tp, _Alloc>  _Node_alloc_type;
+>     typedef simple_alloc<_Tp*, _Alloc> _Map_alloc_type;
+>   
+>     _Tp* _M_allocate_node()
+>     { return _Node_alloc_type::allocate(__deque_buf_size(sizeof(_Tp))); }
+>   void _M_deallocate_node(_Tp* __p)
+>     { _Node_alloc_type::deallocate(__p, __deque_buf_size(sizeof(_Tp))); }
+>   _Tp** _M_allocate_map(size_t __n) 
+>     { return _Map_alloc_type::allocate(__n); }
+>   void _M_deallocate_map(_Tp** __p, size_t __n) 
+>     { _Map_alloc_type::deallocate(__p, __n); }
+> ```
+
+> ### 构造函数
+>
+> - 其中一个构造函数的版本如下
+>
+> ```c++
+>   _Deque_base(const allocator_type&, size_t __num_elements)
+>     : _M_map(0), _M_map_size(0),  _M_start(), _M_finish() {
+>     _M_initialize_map(__num_elements);
+>   }
+> ```
+>
+> - 其内所调用的_M_initialize_map() 负责产生并安排好deque的结构，并将元素的初值设定妥当：
+>
+> ```c++
+> template <class _Tp, class _Alloc>
+> void
+> _Deque_base<_Tp,_Alloc>::_M_initialize_map(size_t __num_elements)
+> {
+>   //需要节点数=(元素个数/每个缓冲区可容纳的元素个数)+1  如果刚好整除，会多配一个节点
+>   size_t __num_nodes = 
+>     __num_elements / __deque_buf_size(sizeof(_Tp)) + 1;
+> 
+>   //一个 map 要管理几个节点。最少8个，最多是 “所需节点数加 2”
+>   // （前后各预留一个，扩充时可用）
+>   _M_map_size = max((size_t) _S_initial_map_size, __num_nodes + 2);
+>   _M_map = _M_allocate_map(_M_map_size);
+>   // 以上配置出一个 “具有 map_size个节点” 的 map
+>   
+>   // 以下令 nstart和 nfinish指向 map所拥有之全部节点的最中央区段
+>   // 保持在最中央，可使头尾两端的扩充能量一样大。每个节点可对应一个缓冲区
+>   _Tp** __nstart = _M_map + (_M_map_size - __num_nodes) / 2;
+>   _Tp** __nfinish = __nstart + __num_nodes;
+>     
+>   __STL_TRY {
+>     _M_create_nodes(__nstart, __nfinish);
+>   }
+>   __STL_UNWIND((_M_deallocate_map(_M_map, _M_map_size), 
+>                 _M_map = 0, _M_map_size = 0));
+>   
+>   // 为 deque内的两个迭代器start和end设定正确内容
+>   _M_start._M_set_node(__nstart);
+>   _M_finish._M_set_node(__nfinish - 1);
+>   _M_start._M_cur = _M_start._M_first;
+>   _M_finish._M_cur = _M_finish._M_first +
+>                __num_elements % __deque_buf_size(sizeof(_Tp));
+>   // 前面说过，如果刚好整除，会多配一个节点，此时即令 cur指向这多配的一个节点（所对映之缓冲区）的起头处
+> }
+> ```
+>
+> ```c++
+> template <class _Tp, class _Alloc>
+> void _Deque_base<_Tp,_Alloc>::_M_create_nodes(_Tp** __nstart, _Tp** __nfinish)
+> {
+>   _Tp** __cur;
+>   __STL_TRY {
+>     // 为 map内的每个现用节点配置缓冲区。所有缓冲区加起来就是 deque的
+>     // 可用空间（最后一个缓冲区可能留有一些余裕）
+>     for (__cur = __nstart; __cur < __nfinish; ++__cur)
+>       *__cur = _M_allocate_node();
+>   }
+>   __STL_UNWIND(_M_destroy_nodes(__nstart, __cur));
+> }
+> ```
+>
+> - 在上面的演示案例中，我们的第3个缓冲区还有4个空间使用，现在我们执行下面的代码在尾部增加3个元素：
+>
+> ```c++
+> for(int i=0;i<3;i++)
+>     ideq.push_back(i);
+> ```
+>
+> * 由于此时最后一个缓冲区仍有4个备用元素空间，所以不会引起缓冲区的再配置。 此时的deque状态如下图所示
+>
+> ![deque演示说明2](./../img/deque演示说明2.png)
+
+> ### push_back()
+>
+> - 以下是 push_back()函数的内容：
+>
+> ```c++
+>   void push_front(const value_type& __t) {
+>     if (_M_start._M_cur != _M_start._M_first) {
+>       // 最后缓冲区尚有一个以上的备用空间
+>       construct(_M_start._M_cur - 1, __t);//直接在备用空间上构造元素
+>       --_M_start._M_cur;//调整最后缓冲区的使用状态
+>     }
+>     else //最后缓冲区已无（或只剩一个）元素备用空间
+>       _M_push_front_aux(__t);
+>   }
+> ```
+>
+> ### push_back_aux()
+>
+> - 当尾端没有剩余空间或者只剩一个元素备用空间，**push_back()就会调用push_back_aux()， 先配置一整块新的缓冲区，再设妥新元素内容，然后更改迭代器finish的状态：**
+>
+> ```c++
+> // Called only if _M_finish._M_cur == _M_finish._M_last - 1.
+> // 也就是说只有当最后一个缓冲区只剩一个备用元素空间时才会被调用
+> template <class _Tp, class _Alloc>
+> void deque<_Tp,_Alloc>::_M_push_back_aux(const value_type& __t)
+> {
+>   value_type __t_copy = __t;
+>   _M_reserve_map_at_back(); //若符合某种条件则必须重换一个map
+>   *(_M_finish._M_node + 1) = _M_allocate_node();//配置一个新节点（缓冲区）
+>   __STL_TRY {
+>     construct(_M_finish._M_cur, __t_copy);//针对标的元素设值
+>     _M_finish._M_set_node(_M_finish._M_node + 1);//改变 finish，令其指向新节点
+>     _M_finish._M_cur = _M_finish._M_first;//设定 finish的状态
+>   }
+>   __STL_UNWIND(_M_deallocate_node(*(_M_finish._M_node + 1)));
+> }
+> ```
+>
+> ### 演示说明
+>
+> - 如果当前deque的状态如上图所示。现在，如果再新增加一个新元素于尾端：
+>
+> ```cpp
+> ideq.push_back(3);
+> ```
+>
+> - 现在，deque的状态将如下所示，多申请了一个缓冲区
+>
+> ![deque演示说明3](./../img/deque演示说明3.png)
+>
+> 
