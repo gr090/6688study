@@ -582,4 +582,310 @@ int main()
 >
 > ![deque演示说明3](./../img/deque演示说明3.png)
 >
+
+> ### push_front()
+>
+> - push_front()函数的原型如下：
+>
+> ```c++
+>   void push_front(const value_type& __t) {
+>     if (_M_start._M_cur != _M_start._M_first) { //第一缓冲区尚有备用空间
+>       construct(_M_start._M_cur - 1, __t); //直接在备用空间上建构元素
+>       --_M_start._M_cur; // 调整第㆒缓冲区的使用状态
+>     }
+>     else //第一缓冲区已无备用空间
+>       _M_push_front_aux(__t);
+>   }
+> ```
+>
+> ### push_front_aux()
+>
+> 如果第一缓冲区并无备用空间，那么就**会调用push_front_aux()**
+>
+> - 此函式一开始即呼叫 reserve_map_at_front()，后者用来判断是否需要扩充map，如有需要就付诸行动。稍后我会呈现 reserve_map_at_front() 的函式内容
+>
+> ```c++
+> template <class _Tp, class _Alloc>
+> void  deque<_Tp,_Alloc>::_M_push_front_aux(const value_type& __t)
+> {
+>   value_type __t_copy = __t;
+>   _M_reserve_map_at_front(); // 若符合某种条件则必须重换一个map
+>   *(_M_start._M_node - 1) = _M_allocate_node(); // 配置一个新节点（缓冲区）
+>   __STL_TRY {
+>     _M_start._M_set_node(_M_start._M_node - 1); //改变 start，令其指向新节点
+>     _M_start._M_cur = _M_start._M_last - 1; //设定start的状态
+>     construct(_M_start._M_cur, __t_copy); //针对标的元素设值
+>   }
+>   __STL_UNWIND((++_M_start, _M_deallocate_node(*(_M_start._M_node - 1))));
+> } 
+> ```
+>
+> ### 演示案例
+>
+> - 如果deque的状态如上图所示，此时我们执行下面的代码：
+>
+> ```cpp
+> ideq.push_front(99);
+> ```
+>
+> - 上图的的状态不需要重新整治map，所以后继流程**便配置了一块新缓冲区**并直接将节点安置于现有的map上，然后设定新元素，然后改变迭代器start的状态，如下图所示
+>
+> ![deque演示说明4](./../img/deque演示说明4.png)
+>
+> - 如果现在我们在头部添加两个元素，则结构会更新如下图所示：
+>
+> ```c++
+> ideq.push_front(98);
+> ideq.push_front(97);
+> ```
+>
+> ![deque演示说明5](./../img/deque演示说明5.png)
+
+> ### map重分配
+>
+> - 上面介绍的push_back_aux()、push_front_aux()函数，这些函数会首先分别调用reserve_map_at_back()、reserve_map_at_front()对map进行重新整治
+>
+> ```c++
+>   void _M_reserve_map_at_back (size_type __nodes_to_add = 1) {
+>     if (__nodes_to_add + 1 > _M_map_size - (_M_finish._M_node - _M_map))
+>       _M_reallocate_map(__nodes_to_add, false);
+>   }
 > 
+>   void _M_reserve_map_at_front (size_type __nodes_to_add = 1) {
+>     if (__nodes_to_add > size_type(_M_start._M_node - _M_map))
+>       _M_reallocate_map(__nodes_to_add, true);
+>   }
+> ```
+>
+> ```c++
+> template <class _Tp, class _Alloc>
+> void deque<_Tp,_Alloc>::_M_reallocate_map(size_type __nodes_to_add,
+>                                           bool __add_at_front)
+> {
+>   size_type __old_num_nodes = _M_finish._M_node - _M_start._M_node + 1;
+>   size_type __new_num_nodes = __old_num_nodes + __nodes_to_add;
+> 
+>   _Map_pointer __new_nstart;
+>   if (_M_map_size > 2 * __new_num_nodes) {
+>     __new_nstart = _M_map + (_M_map_size - __new_num_nodes) / 2 
+>                      + (__add_at_front ? __nodes_to_add : 0);
+>     if (__new_nstart < _M_start._M_node)
+>       copy(_M_start._M_node, _M_finish._M_node + 1, __new_nstart);
+>     else
+>       copy_backward(_M_start._M_node, _M_finish._M_node + 1, 
+>                     __new_nstart + __old_num_nodes);
+>   }
+>   else {
+>     size_type __new_map_size = 
+>       _M_map_size + max(_M_map_size, __nodes_to_add) + 2;
+> 
+>     // 配置一块空间，准备给新 map使用。
+>     _Map_pointer __new_map = _M_allocate_map(__new_map_size);
+>     __new_nstart = __new_map + (__new_map_size - __new_num_nodes) / 2
+>                          + (__add_at_front ? __nodes_to_add : 0);
+>     //把原map内容拷贝过来
+>     copy(_M_start._M_node, _M_finish._M_node + 1, __new_nstart);
+>     //释放原map
+>     _M_deallocate_map(_M_map, _M_map_size);
+>     //设定新map的起始地址与大小
+>     _M_map = __new_map;
+>     _M_map_size = __new_map_size;
+>   }
+>   // 重新设定迭代器 start 和 finish
+>   _M_start._M_set_node(__new_nstart);
+>   _M_finish._M_set_node(__new_nstart + __old_num_nodes - 1);
+> }
+> ```
+
+## deque的元素操作
+
+> ### pop_back()
+>
+> ```c++
+>   void pop_back() {
+>     if (_M_finish._M_cur != _M_finish._M_first) {
+>       //最后缓冲区有一个（或更多）元素
+>       --_M_finish._M_cur; // 调整指针，相当于排除了最后元素
+>       destroy(_M_finish._M_cur); // 将最后元素析构
+>     }
+>     else
+>       //最后缓冲区没有任何元素
+>       _M_pop_back_aux(); // 这里将进行缓冲区的释放工作
+>   }
+> 
+> // Called only if _M_finish._M_cur == _M_finish._M_first.
+> template <class _Tp, class _Alloc>
+> void deque<_Tp,_Alloc>::_M_pop_back_aux()
+> {
+>   _M_deallocate_node(_M_finish._M_first); // 释放最后一个缓冲区
+>   _M_finish._M_set_node(_M_finish._M_node - 1); // 调整 finish 的状态，使指向上一个缓冲区的最后一个元素
+>   _M_finish._M_cur = _M_finish._M_last - 1;
+>   destroy(_M_finish._M_cur); // 将该元素析构
+> }
+> ```
+
+> ### pop_front()
+>
+> ```c++
+>   void pop_front() {
+>     if (_M_start._M_cur != _M_start._M_last - 1) {
+>       //第一缓冲区有一个（或更多）元素
+>       destroy(_M_start._M_cur); //将第一元素析构
+>       ++_M_start._M_cur; //调整指针，相当于排除了第一元素
+>     }
+>     else 
+>       //第一缓冲区仅有一个元素
+>       _M_pop_front_aux(); // 这里将进行缓冲区的释放工作
+>   }
+> 
+> template <class _Tp, class _Alloc>
+> void deque<_Tp,_Alloc>::_M_pop_front_aux()
+> {
+>   destroy(_M_start._M_cur); // 将第一缓冲区的第一个元素析构
+>   _M_deallocate_node(_M_start._M_first); // 释放第一缓冲区
+>   _M_start._M_set_node(_M_start._M_node + 1); // 调整 start 的状态，使指向下一个缓冲区的第一个元素
+>   _M_start._M_cur = _M_start._M_first;
+> }
+> ```
+
+> ### clear()
+>
+> - clear()用来清除整个deque
+> - 请注意，deque的**最初状态（无任何元素时）保有一个缓冲区**，因此clear()完成之后回复初始状态，也一样要保留一个缓冲区：
+>
+> ```c++
+> // 注意，最终需要保留一个缓冲区。这是deque的策略，也是deque的初始状态
+> template <class _Tp, class _Alloc> 
+> void deque<_Tp,_Alloc>::clear()
+> {
+>   // 以下针对头尾以外的每一个缓冲区（它们一定都是饱满的）
+>   for (_Map_pointer __node = _M_start._M_node + 1;
+>        __node < _M_finish._M_node;
+>        ++__node) {
+>     // 将缓冲区内的所有元素析构。注意，调用的是 destroy() 第二版本
+>     destroy(*__node, *__node + _S_buffer_size());
+>     // 释放缓冲区内存
+>     _M_deallocate_node(*__node);
+>   }
+> 
+>   if (_M_start._M_node != _M_finish._M_node) { // 至少有头尾两个缓冲区
+>     destroy(_M_start._M_cur, _M_start._M_last); // 将头缓冲区的目前所有元素析构
+>     destroy(_M_finish._M_first, _M_finish._M_cur); // 将尾缓冲区的目前所有元素析构
+>     // 以下释放尾缓冲区。注意，头缓冲区保留
+>     _M_deallocate_node(_M_finish._M_first);
+>   }
+>   else // 只有一个缓冲区
+>     destroy(_M_start._M_cur, _M_finish._M_cur); // 将此唯一缓冲区内的所有元素析构
+>     // 注意，并不释放缓冲区空间。这唯一的缓冲区将保留
+>   _M_finish = _M_start; //调整状态
+> }
+> ```
+
+> ### erase()
+>
+> - 下面的erase版本用来清除某个元素
+>
+> ```c++
+> // 清除pos所指的元素。pos为清除点  
+> iterator erase(iterator __pos) {
+>     iterator __next = __pos;
+>     ++__next;
+>     difference_type __index = __pos - _M_start; //清除点之前的元素个数
+>     if (size_type(__index) < (this->size() >> 1)) {  //如果清除点之前的元素比较少，
+>         copy_backward(_M_start, __pos, __next);      // 就搬移清除点之前的元素
+>         pop_front();                                 //移动搬移完毕，最前一个元素冗余，去除之
+>     }
+>     else {                               // 清除点之后的元素比较少，
+>         copy(__next, _M_finish, __pos);  // 就移动清除点之后的元素
+>         pop_back();                      // 移动完毕，最后一个元素冗余，去除之
+>     }
+>     return _M_start + __index;
+> }
+> ```
+>
+> - 下面的erase版本用来清除[first,last)区间内的所有元素
+>
+> ```c++
+> template <class _Tp, class _Alloc>
+> typename deque<_Tp,_Alloc>::iterator 
+> deque<_Tp,_Alloc>::erase(iterator __first, iterator __last)
+> {
+>   if (__first == _M_start && __last == _M_finish) {  // 如果清除区间就是整个deque，直接调用clear() 即可
+>     clear();
+>     return _M_finish;
+>   }
+>   else {
+>     difference_type __n = __last - __first;              // 清除区间的长度
+>     difference_type __elems_before = __first - _M_start; // 清除区间前方的元素个数
+>     if (__elems_before < difference_type((this->size() - __n) / 2)) {  // 如果前方的元素比较少，
+>       copy_backward(_M_start, __first, __last);                       // 向后搬移前方元素（覆盖清除区间）
+>       iterator __new_start = _M_start + __n;                          // 标记 deque 的新起点
+>       destroy(_M_start, __new_start);                                 // 移动完毕，将冗余的元素析构
+>       // 以下将冗余的缓冲区释放
+>       _M_destroy_nodes(__new_start._M_node, _M_start._M_node);
+>       _M_start = __new_start; // 设定 deque 的新起点
+>     }
+>     else {   // 如果清除区间后方的元素比较少
+>       copy(__last, _M_finish, __first);          // 向前搬移后方元素（覆盖清除区间）
+>       iterator __new_finish = _M_finish - __n;   // 标记 deque 的新尾点
+>       destroy(__new_finish, _M_finish);         // 移动完毕，将冗余的元素析构
+>       // 以下将冗余的缓冲区释放
+>       _M_destroy_nodes(__new_finish._M_node + 1, _M_finish._M_node + 1);
+>       _M_finish = __new_finish; // 设定 deque 的新尾点
+>     }
+>     return _M_start + __elems_before;
+>   }
+> }
+> ```
+
+> ### insert()函数
+>
+> - insert提供了许多版本，最基础最重要的是以下的版本，允许在某个点（之前）插入一个元素，并设定其值
+>
+> ```c++
+>   iterator insert(iterator position, const value_type& __x) {
+>     if (position._M_cur == _M_start._M_cur) {  // 如果插入点是deque最前端，交给push_front去做
+>       push_front(__x);
+>       return _M_start;
+>     }
+>     else if (position._M_cur == _M_finish._M_cur) { //如果插入点是deque最尾端，交给 push_back 去做
+>       push_back(__x);
+>       iterator __tmp = _M_finish;
+>       --__tmp;
+>       return __tmp;
+>     }
+>     else {
+>       return _M_insert_aux(position, __x);
+>     }
+>   }
+> 
+> template <class _Tp, class _Alloc>
+> typename deque<_Tp, _Alloc>::iterator
+> deque<_Tp,_Alloc>::_M_insert_aux(iterator __pos, const value_type& __x)
+> {
+>   difference_type __index = __pos - _M_start;  // 插入点之前的元素个数
+>   value_type __x_copy = __x;
+>   if (size_type(__index) < this->size() / 2) {   // 如果插入点之前的元素个数比较少
+>     push_front(front());                         // 在最前端加入与第一元素同值的元素
+>     iterator __front1 = _M_start;                // 以下标示记号，然后进行元素移动...
+>     ++__front1;
+>     iterator __front2 = __front1;
+>     ++__front2;
+>     __pos = _M_start + __index;
+>     iterator __pos1 = __pos;
+>     ++__pos1;
+>     copy(__front2, __pos1, __front1); // 元素移动
+>   }
+>   else {                                 // 插入点之后的元素个数比较少
+>     push_back(back());                   // 在最尾端加入与最后元素同值的元素
+>     iterator __back1 = _M_finish;        // 以下标示记号，然后进行元素搬移...
+>     --__back1;
+>     iterator __back2 = __back1;
+>     --__back2;
+>     __pos = _M_start + __index;
+>     copy_backward(__pos, __back2, __back1); // 元素移动
+>   }
+>   *__pos = __x_copy; // 在插入点上设定新值
+>   return __pos;
+> }
+> ```
