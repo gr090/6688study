@@ -149,9 +149,13 @@ deque<string> front(svec.begin(), mid); // 不包括mid
 
   capacity(容量)和size(长度)的区别：size指容器当前拥有的元素个数，而capacity则指容器必须分配新存储空间之前可以存储的元素总数。
 
+### 2. list
+
+### 3. deque
 
 
-### 2. stack
+
+### 4. stack
 
 #include <stack>
 
@@ -164,6 +168,152 @@ deque<string> front(svec.begin(), mid); // 不包括mid
 | s.pop()      | 删除栈顶元素，但不返回其值            |
 | s.top()      | 返回栈顶元素的值，但不删除该元素      |
 | s.push(item) | 往栈顶压入新元素                      |
+
+
+
+### 5. queue和priority_queue
+
+进入队列的对象被放置在尾部，下一个被取出的元素则取自队列的首部。标准库提供了两种风格的队列：FIFO队列以及优先级队列。
+
+priority_queue允许用户为队列中存储的元素设置优先级。这种队列不是直接将新元素放置在队列尾部，而是放在比它优先级低的元素前面。
+
+> 优先队列是一种容器适配器，采用了堆这样的数据结构，保证了第一个元素总是整个优先队列中最大的(或最小的)元素。
+>
+> 优先队列默认使用vector作为底层存储数据的容器，在vector上使用了堆算法将vector中的元素构造成堆的结构，所以其实我们就可以把它当作堆，凡是需要用堆的位置，都可以考虑优先队列。
+
+#include <queue>
+
+队列和优先级队列支持的操作
+
+| 函数         | 说明                                                         |
+| ------------ | ------------------------------------------------------------ |
+| q.empty()    | 如果队列为空，则返回true，否则返回false                      |
+| q.size()     | 返回队列中元素的个数                                         |
+| q.pop()      | 删除队首元素，但不返回其值                                   |
+| q.front()    | 返回队首元素的值，但不删除该元素。 该操作只适用于队列        |
+| q.back()     | 返回队尾元素的值，但不删除该元素。 该操作只适用于队列        |
+| q.top()      | 返回具有最高优先级的元素值，但不删除该元素。  该操作只适用于优先级队列 |
+| q.push(item) | 对于queue，在队尾压入一个新元素。对于priority_queue，在基于优先级的适当位置插入新元素 |
+
+priority_queue类模板参数
+
+```c++
+template <class T, class Container = vector<T>,class Compare = less<typename Container::value_type> >
+class priority_queue;
+```
+
+class T：T是优先队列中存储的元素的类型。
+
+class Container = vector<T>：Container是优先队列底层使用的存储结构，可以看出来，默认采用vector。
+class Compare = less<typename Container::value_type> ：Compare是定义优先队列中元素的比较方式的类。
+
+Compare后面跟着的less<typename Container::value_type>就是默认的比较类，默认是按小于(less)的方式比较，这种比较方式创建出来的就是大堆。所以优先队列默认就是大堆。
+
+> **less**类的内部函数。参数列表中有左右两个参数，左边小于右边的时候返回true，此时优先队列就是大堆。
+>
+> ```c++
+> template <class T> 
+>         struct less : binary_function <T,T,bool> {
+>           bool operator() (const T& x, const T& y) const {return x<y;}
+> };
+> ```
+>
+> **greater**类的内部函数，参数列表中有左右两个参数，左边大于右边的时候返回true，此时优先队列就是小堆。
+>
+> ```c++
+> template <class T> 
+>         struct greater : binary_function <T,T,bool> {
+>           bool operator() (const T& x, const T& y) const {return x>y;}
+> }; 
+> ```
+>
+> 注意：less类和greater类只能比较内置类型的数据的大小，如果用户需要比较自定义类型的数据，就需要自己定义一个比较类，并且重载()。
+>
+> 同时less类和greater类也具有模板参数，因为他们也是模板，所以我们如果要存储自定义类型的元素，就要将自定义类型作为模板参数传递给less类和greater类。
+
+如果需要创建小堆，就需要将less改为greater。
+
+
+
+priority_queue构造函数：
+
+```c++
+priority_queue (const Compare& comp = Compare(), const Container& ctnr = Container());
+```
+
+构造函数中有两个参数，都具有默认值。这两个参数分别是**Compare**类和**Container**类的对象。
+
+**构造函数默认将vector的对象传入构造函数作为底层结构，将less的对象传入构造函数按小于的方式比较构造大堆。**
+
+
+
+#### 示例代码
+
+priority_queue存储自定义类型元素
+
+```c++
+//Date是日期类
+priority_queue<Date, vector<Date>, less<Date>> q1;
+
+#include "iostream"
+#include "queue"
+using namespace std;
+ 
+class Date {
+private:
+	int year;
+	int month;
+	int day;
+public:
+	//构造函数
+	Date(int _year, int _month, int _day)
+		:year(_year)
+		, month(_month)
+		, day(_day)
+	{}
+	//重载< 
+	//当this指向的对象小于d对象返回true
+	bool operator<(const Date& d) const {
+		if ((year < d.year) || (year == d.year && month < d.month) ||
+			(year == d.year && month == d.month && day < d.day)) {
+			return true;
+		}
+		else {
+			return false;
+		}
+	}
+	//重载>
+	//当this指向的对象大于d对象返回true
+	bool operator>(const Date& d) const {
+		if ((year > d.year) || (year == d.year && month > d.month) ||
+			(year == d.year && month == d.month && day > d.day)) {
+			return true;
+		}
+		else {
+			return false;
+		}
+	}
+};
+ 
+ 
+int main() {
+	Date d1(2021, 12, 12);
+	Date d2(2020, 12, 12);
+	Date d3(2022, 1, 1);
+ 
+	priority_queue<Date, vector<Date>, less<Date>> q1;
+	q1.push(d1);
+	q1.push(d2);
+	q1.push(d3);
+ 
+	priority_queue<Date, vector<Date>, greater<Date>> q2;
+	q2.push(d1);
+	q2.push(d2);
+	q2.push(d3);
+}
+```
+
+
 
 ## 关联容器
 
