@@ -130,9 +130,37 @@ deque<string> front(svec.begin(), mid); // 不包括mid
   
   swap()操作不会删除或插入任何元素，而且保证在常量时间内实现交换。由于容器内没有移动任何元素，因此迭代器不会失效。
 
-### 1. vector
+### string
+
+string 是模板 basic_string 对于 char 类型的特化，可以认为是一个只存放字符 char 类型数据的容器。“真正”的容器类与 string 的最大不同点是里面可以存放任意类型的对象。
+
+string 当然是为了存放字符串。和简单的 C 字符串不同：
+
+* string 负责自动维护字符串的生命周期
+* string 支持字符串的拼接操作（ + 和 +=）
+* string 支持字符串的查找操作（如 find 和 rfind）
+* string 支持从 istream 安全地读入字符串（使用 getline）
+* string 支持给期待 const char* 的接口传递字符串内容（使用 c_str）
+* string 支持到数字的互转（stoi 系列函数和 to_string）
+
+### vector
+
+动态数组，相当于Java的ArrayList和Python的list。vector的成员在内存里连续存放。
+
+![img](./img/vector.webp)
 
 #include <vector>
+
+* data()获得指向其内容的裸指针。
+* capacity 来获得当前分配的存储空间的大小，以元素数量计
+* reserve 来改变所需的存储空间的大小，成功后 capacity() 会改变
+* resize 来改变其大小，成功后 size() 会改变
+* pop_back 来删除最后一个元素
+* push_back 在尾部插入一个元素
+*  insert 在指定位置前插入一个元素
+* erase 在指定位置删除一个元素 
+* emplace 在指定位置构造一个元素
+* emplace_back 在尾部新构造一个元素
 
 * 初始化
 
@@ -148,14 +176,68 @@ deque<string> front(svec.begin(), mid); // 不包括mid
   ```
 
   capacity(容量)和size(长度)的区别：size指容器当前拥有的元素个数，而capacity则指容器必须分配新存储空间之前可以存储的元素总数。
+  
+  > 当 push_back、insert、reserve、resize 等函数导致内存重分配时，或当 insert、erase 导致元素位置移动时，vector 会试图把元素“移动”到新的内存区域。vector 通常保证强异常安全性，如果元素类型没有提供一个**保证不抛异常的移动构造函数**，vector 通常会使用拷贝构造函数。因此，对于拷贝代价较高的自定义元素类型，我们应当定义移动构造函数，并标其为 noexcept，或只在容器中放置对象的智能指针。
+  >
+  > C++11 开始提供的 emplace… 系列函数是为了提升容器的性能而设计的。
+  >
+  > 你可以试试把 v1.emplace_back() 改成 v1.push_back(Obj1())。对于 vector 里的内容，结果是一样的；但使用 push_back 会额外生成临时对象，多一次（移动或拷贝）构造和析构。如果是移动的情况，那会有小幅性能损失；如果对象没有实现移动的话，那性能差异就可能比较大了。
+  >
+  > 
+  >
+  > vector 的一个主要缺陷是大小增长时导致的元素移动。如果可能，尽早使用 reserve 函数为 vector 保留所需的内存，这在 vector 预期会增长很大时能带来很大的性能提升。
+  
+  
 
-### 2. list
+### deque
 
-### 3. deque
+double-ended queue，双端队列。
 
+它主要是用来满足下面这个需求：容器不仅可以从尾部自由地添加和删除元素，也可以从头部自由地添加和删除。
 
+![img](./img/deque.webp)
 
-### 4. stack
+deque 的接口和 vector 相比，有如下的区别：
+
+* deque 提供 push_front、emplace_front 和 pop_front 成员函数。
+* deque 不提供 data、capacity 和 reserve 成员函数。(容器里的元素只是部分连续的，因而没法提供 data 成员函数)
+
+由于元素的存储大部分仍然连续，它的遍历性能是比较高的。
+
+由于每一段存储大小相等，deque 支持使用下标访问容器元素，大致相当于 index\[i / chunk_size][i % chunk_size]，也保持高效。
+
+### list
+
+双向链表
+
+![img](./img/list.webp)
+
+和 vector 相比，它优化了在容器中间的插入和删除：
+
+* list 提供高效的、O(1) 复杂度的任意位置的插入和删除操作。
+* list 不提供使用下标访问其元素。
+* list 提供 push_front、emplace_front 和 pop_front 成员函数（和 deque 相同）。
+* list 不提供 data、capacity 和 reserve 成员函数（和 deque 相同）。
+
+另外一个需要注意的地方是，因为某些标准算法在 list 上会导致问题，list 提供了成员函数作为替代，包括下面几个：merge、remove、remove_if、reverse、sort、unique
+
+```c++
+sort(vec.begin(), vec.end());     // 正常
+// sort(lst.begin(), lst.end());  // 会出错
+lst.sort();                       // 正常
+```
+
+### forward_list
+
+从 C++11 开始，前向列表 forward_list 成了标准的一部分。
+
+![img](./img/forward_list.webp)
+
+大部分 C++ 容器都支持 insert 成员函数，语义是从指定的位置之前插入一个元素。对于 forward_list，这不是一件容易做到的事情。标准库提供了一个 insert_after 作为替代。此外，它跟 list 相比还缺了下面这些成员函数：back、size、push_back、emplace_back、pop_back。
+
+为什么会需要这么一个阉割版的 list 呢？原因是，在元素大小较小的情况下，forward_list 能节约的内存是非常可观的；在列表不长的情况下，不能反向查找也不是个大问题。提高内存利用率，往往就能提高程序性能，更不用说在内存可能不足时的情况了。
+
+### stack
 
 #include <stack>
 
@@ -171,7 +253,7 @@ deque<string> front(svec.begin(), mid); // 不包括mid
 
 
 
-### 5. queue和priority_queue
+### queue和priority_queue
 
 进入队列的对象被放置在尾部，下一个被取出的元素则取自队列的首部。标准库提供了两种风格的队列：FIFO队列以及优先级队列。
 
@@ -327,9 +409,9 @@ int main() {
 
 一般来说，如果希望有效地存储不同值的集合，那么使用set容器比较合适，而map容器则更适用于需要存储(乃至修改)每个键所关联的值的情况。
 
-### 1. map
+### map
 
-### 2. set
+### set
 
 
 
