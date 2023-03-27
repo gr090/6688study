@@ -1,5 +1,45 @@
 # C++ STL容器和算法
 
+两个重要的函数对象
+
+* less
+
+  ```c++
+  template <class T>
+  struct less
+    : binary_function<T, T, bool> {
+    bool operator()(const T& x,
+                    const T& y) const
+    {
+      return x < y;
+    }
+  };
+  ```
+
+  less 是一个函数对象，并且是个二元函数，执行对任意类型的值的比较，返回布尔类型。作为函数对象，它定义了函数调用运算符（operator()），并且缺省行为是对指定类型的对象进行 < 的比较操作。
+
+  在需要大小比较的场合，C++ 通常默认会使用 less，包括若干容器和排序算法 sort。如果我们需要产生相反的顺序的话，则可以使用 greater，大于关系。
+
+* hash
+
+  计算哈希值的函数对象 hash目的是把一个某种类型的值转换成一个无符号整数哈希值，类型为 size_t。它没有一个可用的默认实现。对于常用的类型，系统提供了需要的特化
+
+  ```c++
+  template <class T> struct hash;
+  
+  template <>
+  struct hash<int>
+    : public unary_function<int, size_t> {
+    size_t operator()(int v) const
+      noexcept
+    {
+      return static_cast<size_t>(v);
+    }
+  };
+  ```
+
+  对于每个类，类的作者都可以提供 hash 的特化，使得对于不同的对象值，函数调用运算符都能得到尽可能均匀分布的不同数值。
+
 ## 顺序容器
 
 标准库定义了三种顺序容器类型：
@@ -142,6 +182,61 @@ string 当然是为了存放字符串。和简单的 C 字符串不同：
 * string 支持从 istream 安全地读入字符串（使用 getline）
 * string 支持给期待 const char* 的接口传递字符串内容（使用 c_str）
 * string 支持到数字的互转（stoi 系列函数和 to_string）
+
+### array
+
+C 数组的替代品。C 数组在 C++ 里继续存在，主要是为了保留和 C 的向后兼容性。C 数组本身和 C++ 的容器相差是非常大的：
+
+* C 数组没有 begin 和 end 成员函数（虽然可以使用全局的 begin 和 end 函数）
+
+* C 数组没有 size 成员函数（得用一些模板技巧来获取其长度）
+
+* C 数组作为参数有退化行为，传递给另外一个函数后那个函数不再能获得 C 数组的长度和结束位置
+
+* 此外，C 数组也没有良好的复制行为。你无法用 C 数组作为 map 或 unordered_map 的键类型。下面的代码演示了失败行为：
+
+  ```c++
+  #include <map>  // std::map
+  
+  typedef char mykey_t[8];
+  
+  int main()
+  {
+    std::map<mykey_t, int> mp;
+    mykey_t mykey{"hello"};
+    mp[mykey] = 5;
+    // 轰，大段的编译错误
+  }
+  ```
+
+如果不用 C 数组的话，我们该用什么来替代呢？我们有三个可以考虑的选项：
+
+* 如果数组较大的话，应该考虑 vector。vector 有最大的灵活性和不错的性能。
+
+* 对于字符串数组，当然应该考虑 string。
+
+* 如果数组大小固定（C 的数组在 C++ 里本来就是大小固定的）并且较小的话，应该考虑 array。array 保留了 C 数组在栈上分配的特点，同时，提供了 begin、end、size 等通用成员函数。
+
+array 可以避免 C 数组的种种怪异行径。上面的失败代码，如果使用 array 的话，稍作改动就可以通过编译：
+
+```c++
+#include <array>     // std::array
+#include <iostream>  // std::cout/endl
+#include <map>       // std::map
+#include "output_container.h"
+
+typedef std::array<char, 8> mykey_t;
+
+int main()
+{
+  std::map<mykey_t, int> mp;
+  mykey_t mykey{"hello"};
+  mp[mykey] = 5;  // OK
+  std::cout << mp << std::endl;
+}
+```
+
+
 
 ### vector
 
@@ -399,19 +494,149 @@ int main() {
 
 ## 关联容器
 
-关联容器支持通过键来高效地查找和读取元素。两个基本的关联容器是map和set。map的元素以键-值(key-value)对的形式组织：键用作元素在map中的索引，而值则表示所存储和读取的数据。set则包含一个键值，并有效地支持关于某个键是否存在的查询。
+### pair类型
 
-* unordered_map
-* map
-* set
-* multimap：支持同一个键多次出现的map类型
-* multiset：支持同一个键多次出现的set类型
+pair包含两个数据值。在创建pair对象时，必须提供两个类型名：pair对象所包含的两个数据成员各自对应的类型名字
+
+pair类型提供的操作
+
+| 操作                     | 说明                                                         |
+| ------------------------ | ------------------------------------------------------------ |
+| pair<T1, T2> p1;         | 创建一个空的pair对象，它的两个元素分别是T1和T2类型           |
+| pair<T1, T2> p1(v1, v2); | 创建一个pair对象，它的两个元素分别是T1和T2类型，其中first成员初始化为v1，second成员初始化为v2 |
+| make_pair(v1, v2);       | 以v1和v2值创建一个新的pair对象，其元素类型分别是v1和v2的类型 |
+| p1 < p2                  | 两个pair对象之间的小于运算                                   |
+| p1 == p2                 | 相等                                                         |
+| p.first                  | 返回p中名为first的(公有)数据成员                             |
+| p.second                 | 返回p中名为second的(公有)数据成员                            |
+
+
+
+关联容器有 set（集合）、map（映射）、multiset（多重集）和 multimap（多重映射）。
+
+关联容器支持通过键来高效地查找和读取元素。map的元素以键-值(key-value)对的形式组织：键用作元素在map中的索引，而值则表示所存储和读取的数据。set则包含一个键值，并有效地支持关于某个键是否存在的查询。
+
+关联容器是一种有序的容器。名字带“multi”的允许键重复，不带的不允许键重复。set 和 multiset 只能用来存放键，而 map 和 multimap 则存放一个个键值对。
+
+与序列容器相比，关联容器没有前、后的概念及相关的成员函数，但同样提供 insert、emplace 等成员函数。此外，关联容器都有 find、lower_bound、upper_bound 等查找函数，结果是一个迭代器：
+
+* find(k) 可以找到任何一个等价于查找键 k 的元素（!(x < k || k < x)）
+* lower_bound(k) 找到第一个不小于查找键 k 的元素（!(x < k)）
+* upper_bound(k) 找到第一个大于查找键 k 的元素（k < x）
+
+
 
 一般来说，如果希望有效地存储不同值的集合，那么使用set容器比较合适，而map容器则更适用于需要存储(乃至修改)每个键所关联的值的情况。
 
+### 严格弱排序
+
+如果在声明关联容器时没有提供比较类型的参数，缺省使用 less 来进行排序。如果键的类型提供了比较算符 < 的重载，我们不需要做任何额外的工作。否则，我们就需要对键类型进行 less 的特化，或者提供一个其他的函数对象类型。对于自定义类型，推荐尽量使用标准的 less 实现，通过重载 <（及其他标准比较运算符）对该类型的对象进行排序。存储在关联容器中的键一般应满足严格弱序关系（strict weak ordering；即：
+
+* 对于任何该类型的对象 x：!(x < x)（非自反）
+* 对于任何该类型的对象 x 和 y：如果 x < y，则 !(y < x)（非对称）
+* 对于任何该类型的对象 x、y 和 z：如果 x < y 并且 y < z，则 x < z（传递性）
+* 对于任何该类型的对象 x、y 和 z：如果 x 和 y 不可比（!(x < y) 并且 !(y < x)）并且 y 和 z 不可比，则 x 和 z 不可比（不可比的传递性）
+
 ### map
+
+#include <map>
+
+map对象的元素是键-值对。map的value_type是存储元素的键以及值的pair类型，而且键为const。
+
+map迭代器进行解引用将产生pair类型的对象
+
+map容器额外定义了两种类型：key_type和mapped_type，以获得键或值的类型。
+
+> 使用下标访问map与使用下标访问数组或vector的行为截然不同：用下标访问不存在的元素将导致在map容器中添加一个新的元素，它的键即为该下标值。
+
+* insert
+
+  ```c++
+  m.insert(e); //
+  m.insert(beg, end); //beg和end是标记元素范围的迭代器
+  m.insert(iter, e);
+  ```
+
+  使用insert可避免使用下标操作符所带来的副作用：不必要的初始化
+
+* 查找
 
 ### set
 
+### multimap
+
+```c++
+multimap<string, int> mmp{
+  {"one", 1},
+  {"two", 2},
+  {"three", 3},
+  {"four", 4}
+};
+
+mmp.insert({"four", -4});
+```
 
 
+
+如果你需要在 multimap 里精确查找满足某个键的区间的话，建议使用 equal_range，可以一次性取得上下界（半开半闭）。
+
+```c++
+#include <tuple>
+multimap<string, int>::iterator lower, upper;
+std::tie(lower, upper) = mmp.equal_range("four");
+```
+
+
+
+### multiset
+
+
+
+## 无序关联容器
+
+从 C++11 开始，每一个关联容器都有一个对应的无序关联容器，它们是：unordered_set、unordered_map、unordered_multiset、unordered_multimap。
+
+这些容器和关联容器非常相似，主要的区别就在于它们是“无序”的。这些容器不要求提供一个排序的函数对象，而要求一个可以计算哈希值的函数对象。你当然可以在声明容器对象时手动提供这样一个函数对象类型，但更常见的情况是，我们使用标准的 hash 函数对象及其特化。
+
+```c++
+#include <complex>        // std::complex
+#include <iostream>       // std::cout/endl
+#include <unordered_map>  // std::unordered_map
+#include <unordered_set>  // std::unordered_set
+#include "output_container.h"
+
+using namespace std;
+
+namespace std {
+
+template <typename T>
+struct hash<complex<T>> {
+  size_t
+  operator()(const complex<T>& v) const
+    noexcept
+  {
+    hash<T> h;
+    return h(v.real()) + h(v.imag());
+  }
+};
+
+}  // namespace std
+
+int main()
+{
+  unordered_set<int> s{
+    1, 1, 2, 3, 5, 8, 13, 21
+  };
+  cout << s << endl;
+
+  unordered_map<complex<double>,
+                double>
+    umc{{{1.0, 1.0}, 1.4142},
+        {{3.0, 4.0}, 5.0}};
+  cout << umc << endl;
+}
+```
+
+请注意我们在 std 名空间中添加了特化，这是少数用户可以向 std 名空间添加内容的情况之一。正常情况下，向 std 名空间添加声明或定义是禁止的，属于未定义行为。
+
+从实际的工程角度，无序关联容器的主要优点在于其性能。关联容器和 priority_queue 的插入和删除操作，以及关联容器的查找操作，其复杂度都是 O(log(n))，而无序关联容器的实现使用哈希表，可以达到平均 O(1)！但这取决于我们是否使用了一个好的哈希函数：在哈希函数选择不当的情况下，无序关联容器的插入、删除、查找性能可能成为最差情况的 O(n)，那就比关联容器糟糕得多了。
