@@ -552,18 +552,70 @@ map容器额外定义了两种类型：key_type和mapped_type，以获得键或�
 * insert
 
   ```c++
-  m.insert(e); //
-  m.insert(beg, end); //beg和end是标记元素范围的迭代器
-  m.insert(iter, e);
+  m.insert(e); // e是一个用在m上的value_type类型的值。如果键(e.first)不在m中，则插入一个值为e.second的新元素；如果该键在m中已存在，则保持m不变。该函数返回一个pair类型对象，包含指向键为e.first的元素的map迭代器，以及一个bool类型的对象，表示是否插入了该元素
+  m.insert(beg, end); //beg和end是标记元素范围的迭代器。返回void类型
+  m.insert(iter, e); // 如果键(e.first)不在m中，则创建新元素，并以迭代器iter为起点搜索新元素存储的位置。返回一个迭代器，指向m中具有给定键的元素
   ```
 
   使用insert可避免使用下标操作符所带来的副作用：不必要的初始化
 
+  检测insert的返回值：
+
+  map对象中一个给定键只对应一个元素。如果试图插入的元素所对应的键已在容器中，则inset将不做任何操作。含有一个或一对迭代器形参的insert函数版本并不说明是否有或有多少个元素插入到容器中。但是，带有一个键-值pair形参的insert版本将返回一个值：包含一个迭代器和一个bool值的pair对象。其中迭代器指向map中具有相应键的元素，而bool值则表示是否插入了该元素。
+
+  ```c++
+  // 单词统计程序
+  map<string, int> word_count;
+  string word;
+  while(cin>>word){
+      // 对于每个单词，都尝试insert它，并将它的值赋为1。
+      pair<map<string, int>::iterator, bool> ret = word_count.insert(make_pair(word, 1));
+      // if语句检测insert函数返回值的bool值。如果该值为false，则表示没有做插入操作，按word索引的元素已在word_count中存在，此时，将该元素所关联的值加1。
+      if(!ret.second){
+          ++ret.first->second;
+      }
+  }
+  ```
+
 * 查找
+
+  m.count(k); //返回m中k的出现次数
+
+  m.find(k); // 如果m容器中存在按k索引的元素，则返回指向该元素的迭代器，如果不存在，则返回超出末端迭代器
+  
+* 删除
+
+  m.erase(k); // 删除m中键为k的元素。返回size_type类型的值，表示删除的元素个数
+
+  m.erase(p); // 从m中删除迭代器p所指向的元素。返回void类型。
+
+  m.erase(b, e); // 从m中删除一段范围内的元素，该范围由迭代器对 b 和 e 标记。
 
 ### set
 
+#include <set>
+
+set容器只是单纯的键的集合。
+
+set容器不支持下标操作符。
+
+* 添加元素
+
+  ```c++
+  set<string> set1;
+  set1.insert("the");
+  set1.insert("and");
+  ```
+
+  与map容器一样，带有一个键参数的insert版本返回pair类型对象，包含一个迭代器和一个bool值，迭代器指向拥有该键的元素，而bool值表明是否添加了元素。使用迭代器的insert版本返回void类型。
+
+* 获取元素
+
+  set容器不提供下标操作符。为了通过键从set中获取元素，可使用find。如果只需简单地判断某个元素是否存在，同样可以使用count。
+
 ### multimap
+
+multimap和multiset允许一个键对应多个实例
 
 ```c++
 multimap<string, int> mmp{
@@ -577,6 +629,12 @@ mmp.insert({"four", -4});
 ```
 
 
+
+m.lower_bound(k); // 返回一个迭代器，指向键不小于k的第一个元素
+
+m.upper_bound(k); // 返回一个迭代器，指向键大于k的第一个元素
+
+m.equal_range(k); // 返回一个迭代器的pair对象，它的first成员等价于m.lower_bound(k)，而second成员等价于m.upper_bound(k)。
 
 如果你需要在 multimap 里精确查找满足某个键的区间的话，建议使用 equal_range，可以一次性取得上下界（半开半闭）。
 
