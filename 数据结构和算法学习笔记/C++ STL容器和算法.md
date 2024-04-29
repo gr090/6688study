@@ -577,6 +577,42 @@ map容器额外定义了两种类型：key_type和mapped_type，以获得键或�
   }
   ```
 
+* emplace
+
+  emplace函数用于将元素插入到map容器中，如果待插入的键已经存在于map中，则不会插入，否则会插入新元素。
+
+  emplace操作是从C++11开始引入新特性，emplace操作是直接通过参数构造元素而不是拷贝元素到容器中这样可以减少拷贝从而提高性能。对于map是没有emplace_front、emplace_after、emplace_back这些操作的。
+  
+  使用emplace函数可以避免创建临时对象或进行多余的拷贝操作，提高了插入元素的效率。
+  
+  Inserts a new element into the container constructed in-place with the given `args` if there is no element with the key in the container.
+  
+  ```c++
+  #include <iostream>
+  #include <map>
+  
+  int main() {
+      std::map<int, std::string> myMap;
+  
+      // 插入键值对
+      myMap.emplace(1, "apple");
+      myMap.emplace(2, "banana");
+      myMap.emplace(3, "orange");
+  
+      // 重复键不会插入
+      myMap.emplace(1, "grape");
+  
+      // 输出map中的元素
+      for (const auto& pair : myMap) {
+          std::cout << pair.first << ": " << pair.second << std::endl;
+      }
+  
+      return 0;
+  }
+  ```
+  
+  
+  
 * 查找
 
   m.count(k); //返回m中k的出现次数
