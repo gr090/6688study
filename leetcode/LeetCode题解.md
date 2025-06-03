@@ -25,6 +25,10 @@
 5. 修改题目路径
 
    打开设置，输入 leetcode.workspaceFolder，修改路径
+   
+   设置默认编程语言
+   
+   ctrl+shift+P，找到LeetCode: Switch Default Language，切换首选编程语言
 
 ## leetcode按题目类型分类
 
